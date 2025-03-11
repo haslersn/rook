@@ -13,3 +13,5 @@
 - Allow migration of PVC based OSDs to enable or disable encryption (see [#14776](https://github.com/rook/rook/pull/14776)).
 - Support `rgw_enable_apis` option for CephObjectStore (see [#15064](https://github.com/rook/rook/pull/15064)).
 - ObjectBucketClaim management of s3 bucket policy via the `bucketPolicy` field (see [#15138](https://github.com/rook/rook/pull/15138)).
+- Support external mons for local Rook cluster (see [#14733](https://github.com/rook/rook/issues/14733)).
+- Manage EndpointSlice resources containing monitor IPs to support DNS-based resolution for Ceph clients (see [#14986](https://github.com/rook/rook/issues/14986)).
