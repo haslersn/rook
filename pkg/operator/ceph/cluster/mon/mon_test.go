@@ -43,6 +43,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
@@ -279,7 +280,9 @@ func TestPersistMons(t *testing.T) {
 	setCommonMonProperties(c, 1, cephv1.MonSpec{Count: 3, AllowMultiplePerNode: true}, "myversion")
 
 	// Persist mon a
-	err := c.persistExpectedMonDaemons()
+	err := c.persistExpectedMonDaemonsInConfigMap()
+	assert.NoError(t, err)
+	err = c.persistExpectedMonDaemonsAsEndpointSlice()
 	assert.NoError(t, err)
 
 	cm, err := c.context.Clientset.CoreV1().ConfigMaps(c.Namespace).Get(context.TODO(), EndpointConfigMapName, metav1.GetOptions{})
@@ -287,15 +290,54 @@ func TestPersistMons(t *testing.T) {
 	assert.Equal(t, "a=1.2.3.1:3300", cm.Data[EndpointDataKey])
 	assert.Equal(t, map[string]string{"key": "value"}, cm.Annotations)
 
+	ep, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
+	assert.NoError(t, err)
+	assert.Equal(t, "1.2.3.1", ep.Endpoints[0].Addresses[0])
+	assert.Equal(t, map[string]string{"key": "value"}, cm.Annotations)
+
 	// Persist mon b, and remove mon a for simply testing the configmap is updated
 	c.ClusterInfo.InternalMonitors["b"] = &cephclient.MonInfo{Name: "b", Endpoint: "4.5.6.7:3300"}
 	delete(c.ClusterInfo.InternalMonitors, "a")
-	err = c.persistExpectedMonDaemons()
+	err = c.persistExpectedMonDaemonsInConfigMap()
+	assert.NoError(t, err)
+	err = c.persistExpectedMonDaemonsAsEndpointSlice()
 	assert.NoError(t, err)
 
 	cm, err = c.context.Clientset.CoreV1().ConfigMaps(c.Namespace).Get(context.TODO(), EndpointConfigMapName, metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, "b=4.5.6.7:3300", cm.Data[EndpointDataKey])
+}
+
+func TestCreateEndpointSliceForAddresses(t *testing.T) {
+	clientset := test.New(t, 1)
+	ownerInfo := cephclient.NewMinimumOwnerInfoWithOwnerRef()
+	c := New(context.TODO(), &clusterd.Context{Clientset: clientset}, "ns", cephv1.ClusterSpec{}, ownerInfo)
+
+	// IPv4 test
+	addresses := []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}
+
+	err := c.createEndpointSliceForAddresses(addresses, discoveryv1.AddressTypeIPv4)
+	assert.NoError(t, err)
+
+	epSlice, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
+	assert.NoError(t, err)
+
+	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSlice.AddressType)
+	assert.Len(t, epSlice.Endpoints, 1)
+	assert.ElementsMatch(t, addresses, epSlice.Endpoints[0].Addresses)
+
+	// IPv6 test
+	ipv6Addresses := []string{"2001:db8::1", "2001:db8::2", "2001:db8::3"}
+
+	err = c.createEndpointSliceForAddresses(ipv6Addresses, discoveryv1.AddressTypeIPv6)
+	assert.NoError(t, err)
+
+	epSliceIPv6, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
+	assert.NoError(t, err)
+
+	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
+	assert.Len(t, epSliceIPv6.Endpoints, 1)
+	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
 }
 
 func TestSaveMonEndpoints(t *testing.T) {
