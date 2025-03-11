@@ -229,7 +229,7 @@ func TestTrackMonsOutOfQuorum(t *testing.T) {
 	assert.NoError(t, err)
 
 	// initialize the configmap
-	err = c.persistExpectedMonDaemons()
+	err = c.persistExpectedMonDaemonsInConfigMap()
 	assert.NoError(t, err)
 
 	// Track mon.a as out of quorum
