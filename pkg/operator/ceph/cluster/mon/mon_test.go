@@ -327,6 +327,20 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 		{Name: "f", Endpoint: fmt.Sprintf("[%s]:6789", ipv6Addresses[2])},
 	}
 
+	// Test empty list of monitors
+	{
+		c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
+
+		err := c.persistExpectedMonDaemonsAsEndpointSlice()
+		assert.NoError(t, err)
+
+		_, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
+		assert.True(t, kerrors.IsNotFound(err))
+
+		_, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
+		assert.True(t, kerrors.IsNotFound(err))
+	}
+
 	// IPv4 test
 	{
 		c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
@@ -375,6 +389,20 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 		assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 		assert.Len(t, epSliceIPv6.Endpoints, 1)
 		assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
+
+		// Test empty list of monitors again. This time the EndpointSlices
+		// should still exist, as `persistExpectedMonDaemonsAsEndpointSlice()`
+		// does nothing when the list of mons is empty.
+		c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
+
+		err = c.persistExpectedMonDaemonsAsEndpointSlice()
+		assert.NoError(t, err)
+
+		unchangedEpSliceIPv4, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
+		assert.Equal(t, unchangedEpSliceIPv4, epSliceIPv4)
+
+		unchangedEpSliceIPv6, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
+		assert.Equal(t, unchangedEpSliceIPv6, epSliceIPv6)
 	}
 
 	// IPv6 test
