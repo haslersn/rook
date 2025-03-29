@@ -44,6 +44,7 @@ import (
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
@@ -376,11 +377,13 @@ func testCreateEndpointSlicesForCluster(t *testing.T, c *Cluster, expectedPorts 
 
 	epSliceIPv4, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
 	assert.NoError(t, err)
-
 	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
 	assert.Len(t, epSliceIPv4.Endpoints, 1)
 	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
 	assert.ElementsMatch(t, expectedPorts, epSliceIPv4.Ports)
+
+	epSliceIPv6, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
+	assert.True(t, kerrors.IsNotFound(err))
 
 	// IPv6 test
 	c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
@@ -391,9 +394,11 @@ func testCreateEndpointSlicesForCluster(t *testing.T, c *Cluster, expectedPorts 
 	err = c.persistExpectedMonDaemonsAsEndpointSlice()
 	assert.NoError(t, err)
 
-	epSliceIPv6, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
-	assert.NoError(t, err)
+	epSliceIPv4, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
+	assert.True(t, kerrors.IsNotFound(err))
 
+	epSliceIPv6, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
+	assert.NoError(t, err)
 	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 	assert.Len(t, epSliceIPv6.Endpoints, 1)
 	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
