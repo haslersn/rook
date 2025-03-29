@@ -321,11 +321,37 @@ func TestPersistMons(t *testing.T) {
 	assert.Equal(t, map[string]string{"key": "value"}, cm.Annotations)
 }
 
-func TestCreateEndpointSliceForAddresses(t *testing.T) {
+func TestCreateEndpointSlices(t *testing.T) {
 	clientset := test.New(t, 1)
 	ownerInfo := cephclient.NewMinimumOwnerInfoWithOwnerRef()
-	c := New(context.TODO(), &clusterd.Context{Clientset: clientset}, "ns", cephv1.ClusterSpec{}, ownerInfo)
 
+	// RequireMsgr2=false
+	c := New(context.TODO(), &clusterd.Context{Clientset: clientset}, "ns", cephv1.ClusterSpec{}, ownerInfo)
+	expectedPorts := []discoveryv1.EndpointPort{
+		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
+		{Name: ptr.To(DefaultMsgr1PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr1Port)},
+	}
+	testCreateEndpointSlicesForCluster(t, c, expectedPorts)
+
+	// RequireMsgr2=true
+	c = New(
+		context.TODO(),
+		&clusterd.Context{Clientset: clientset},
+		"ns",
+		cephv1.ClusterSpec{
+			Network: cephv1.NetworkSpec{
+				Connections: &cephv1.ConnectionsSpec{
+					RequireMsgr2: true,
+				},
+			},
+		}, ownerInfo)
+	expectedPorts = []discoveryv1.EndpointPort{
+		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
+	}
+	testCreateEndpointSlicesForCluster(t, c, expectedPorts)
+}
+
+func testCreateEndpointSlicesForCluster(t *testing.T, c *Cluster, expectedPorts []discoveryv1.EndpointPort) {
 	ipv4Addresses := []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}
 	ipv4Mons := []cephclient.MonInfo{
 		{Name: "a", Endpoint: fmt.Sprintf("%s:6789", ipv4Addresses[0])},
@@ -337,10 +363,6 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 		{Name: "d", Endpoint: fmt.Sprintf("[%s]:6789", ipv6Addresses[0])},
 		{Name: "e", Endpoint: fmt.Sprintf("[%s]:6789", ipv6Addresses[1])},
 		{Name: "f", Endpoint: fmt.Sprintf("[%s]:6789", ipv6Addresses[2])},
-	}
-	expectedPortsNoRequireMsgr2 := []discoveryv1.EndpointPort{
-		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
-		{Name: ptr.To(DefaultMsgr1PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr1Port)},
 	}
 
 	// IPv4 test
@@ -358,7 +380,7 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
 	assert.Len(t, epSliceIPv4.Endpoints, 1)
 	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
-	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv4.Ports)
+	assert.ElementsMatch(t, expectedPorts, epSliceIPv4.Ports)
 
 	// IPv6 test
 	c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
@@ -375,7 +397,7 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 	assert.Len(t, epSliceIPv6.Endpoints, 1)
 	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
-	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv6.Ports)
+	assert.ElementsMatch(t, expectedPorts, epSliceIPv6.Ports)
 
 	// Mixed IPv4 and IPv6 test.
 	// Note that this normally doesn't happen, because rook uses only IPv4 or
@@ -398,65 +420,14 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
 	assert.Len(t, epSliceIPv4.Endpoints, 1)
 	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
-	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv4.Ports)
+	assert.ElementsMatch(t, expectedPorts, epSliceIPv4.Ports)
 
 	epSliceIPv6, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 	assert.Len(t, epSliceIPv6.Endpoints, 1)
 	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
-	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv6.Ports)
-
-	// RequireMsgr2=true
-	c = New(
-		context.TODO(),
-		&clusterd.Context{Clientset: clientset},
-		"ns",
-		cephv1.ClusterSpec{
-			Network: cephv1.NetworkSpec{
-				Connections: &cephv1.ConnectionsSpec{
-					RequireMsgr2: true,
-				},
-			},
-		}, ownerInfo)
-
-	expectedPortsRequireMsgr2 := []discoveryv1.EndpointPort{
-		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
-	}
-
-	// IPv4 test
-	c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
-	for _, mon := range ipv4Mons {
-		c.ClusterInfo.InternalMonitors[mon.Name] = &mon
-	}
-
-	err = c.persistExpectedMonDaemonsAsEndpointSlice()
-	assert.NoError(t, err)
-
-	epSliceIPv4, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
-	assert.NoError(t, err)
-
-	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
-	assert.Len(t, epSliceIPv4.Endpoints, 1)
-	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
-	assert.ElementsMatch(t, expectedPortsRequireMsgr2, epSliceIPv4.Ports)
-
-	// IPv6 test
-	c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
-	for _, mon := range ipv6Mons {
-		c.ClusterInfo.InternalMonitors[mon.Name] = &mon
-	}
-
-	err = c.persistExpectedMonDaemonsAsEndpointSlice()
-	assert.NoError(t, err)
-
-	epSliceIPv6, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
-	assert.NoError(t, err)
-
-	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
-	assert.Len(t, epSliceIPv6.Endpoints, 1)
-	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
-	assert.ElementsMatch(t, expectedPortsRequireMsgr2, epSliceIPv6.Ports)
+	assert.ElementsMatch(t, expectedPorts, epSliceIPv6.Ports)
 }
 
 func TestSaveMonEndpoints(t *testing.T) {
