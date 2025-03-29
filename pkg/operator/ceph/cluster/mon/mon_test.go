@@ -280,12 +280,9 @@ func TestPersistMons(t *testing.T) {
 	c := New(context.TODO(), &clusterd.Context{Clientset: clientset}, "ns", cephv1.ClusterSpec{Annotations: cephv1.AnnotationsSpec{cephv1.KeyClusterMetadata: cephv1.Annotations{"key": "value"}}}, ownerInfo)
 	setCommonMonProperties(c, 1, cephv1.MonSpec{Count: 3, AllowMultiplePerNode: true}, "myversion")
 
-	expectedPorts := []struct {
-		Name string
-		Port int32
-	}{
-		{DefaultMsgr2PortName, DefaultMsgr2Port},
-		{DefaultMsgr1PortName, DefaultMsgr1Port},
+	expectedPorts := []discoveryv1.EndpointPort{
+		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
+		{Name: ptr.To(DefaultMsgr1PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr1Port)},
 	}
 
 	// Persist mon a
@@ -302,8 +299,7 @@ func TestPersistMons(t *testing.T) {
 	ep, err := c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, "1.2.3.1", ep.Endpoints[0].Addresses[0])
-	assert.Len(t, ep.Ports, len(expectedPorts))
-	assertEndpointSlicePorts(t, ep.Ports, expectedPorts)
+	assert.ElementsMatch(t, expectedPorts, ep.Ports)
 	assert.Equal(t, map[string]string{"key": "value"}, cm.Annotations)
 
 	// Persist mon b, and remove mon a for simply testing the configmap is updated
@@ -321,8 +317,7 @@ func TestPersistMons(t *testing.T) {
 	ep, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv4, metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, "4.5.6.7", ep.Endpoints[0].Addresses[0])
-	assert.Len(t, ep.Ports, len(expectedPorts))
-	assertEndpointSlicePorts(t, ep.Ports, expectedPorts)
+	assert.ElementsMatch(t, expectedPorts, ep.Ports)
 	assert.Equal(t, map[string]string{"key": "value"}, cm.Annotations)
 }
 
@@ -343,12 +338,9 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 		{Name: "e", Endpoint: fmt.Sprintf("[%s]:6789", ipv6Addresses[1])},
 		{Name: "f", Endpoint: fmt.Sprintf("[%s]:6789", ipv6Addresses[2])},
 	}
-	expectedPortsNoRequireMsgr2 := []struct {
-		Name string
-		Port int32
-	}{
-		{DefaultMsgr2PortName, DefaultMsgr2Port},
-		{DefaultMsgr1PortName, DefaultMsgr1Port},
+	expectedPortsNoRequireMsgr2 := []discoveryv1.EndpointPort{
+		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
+		{Name: ptr.To(DefaultMsgr1PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr1Port)},
 	}
 
 	// IPv4 test
@@ -366,8 +358,7 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
 	assert.Len(t, epSliceIPv4.Endpoints, 1)
 	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
-	assert.Len(t, epSliceIPv4.Ports, len(expectedPortsNoRequireMsgr2))
-	assertEndpointSlicePorts(t, epSliceIPv4.Ports, expectedPortsNoRequireMsgr2)
+	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv4.Ports)
 
 	// IPv6 test
 	c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
@@ -384,8 +375,7 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 	assert.Len(t, epSliceIPv6.Endpoints, 1)
 	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
-	assert.Len(t, epSliceIPv6.Ports, len(expectedPortsNoRequireMsgr2))
-	assertEndpointSlicePorts(t, epSliceIPv6.Ports, expectedPortsNoRequireMsgr2)
+	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv6.Ports)
 
 	// Mixed IPv4 and IPv6 test.
 	// Note that this normally doesn't happen, because rook uses only IPv4 or
@@ -408,14 +398,14 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
 	assert.Len(t, epSliceIPv4.Endpoints, 1)
 	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
-	assertEndpointSlicePorts(t, epSliceIPv4.Ports, expectedPortsNoRequireMsgr2)
+	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv4.Ports)
 
 	epSliceIPv6, err = c.context.Clientset.DiscoveryV1().EndpointSlices(c.Namespace).Get(context.TODO(), endpointSliceNameIPv6, metav1.GetOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 	assert.Len(t, epSliceIPv6.Endpoints, 1)
 	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
-	assertEndpointSlicePorts(t, epSliceIPv6.Ports, expectedPortsNoRequireMsgr2)
+	assert.ElementsMatch(t, expectedPortsNoRequireMsgr2, epSliceIPv6.Ports)
 
 	// RequireMsgr2=true
 	c = New(
@@ -430,11 +420,8 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 			},
 		}, ownerInfo)
 
-	expectedPortsRequireMsgr2 := []struct {
-		Name string
-		Port int32
-	}{
-		{DefaultMsgr2PortName, DefaultMsgr2Port},
+	expectedPortsRequireMsgr2 := []discoveryv1.EndpointPort{
+		{Name: ptr.To(DefaultMsgr2PortName), Protocol: ptr.To(v1.ProtocolTCP), Port: ptr.To(DefaultMsgr2Port)},
 	}
 
 	// IPv4 test
@@ -452,8 +439,7 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv4, epSliceIPv4.AddressType)
 	assert.Len(t, epSliceIPv4.Endpoints, 1)
 	assert.ElementsMatch(t, ipv4Addresses, epSliceIPv4.Endpoints[0].Addresses)
-	assert.Len(t, epSliceIPv4.Ports, len(expectedPortsRequireMsgr2))
-	assertEndpointSlicePorts(t, epSliceIPv4.Ports, expectedPortsRequireMsgr2)
+	assert.ElementsMatch(t, expectedPortsRequireMsgr2, epSliceIPv4.Ports)
 
 	// IPv6 test
 	c.ClusterInfo.InternalMonitors = map[string]*cephclient.MonInfo{}
@@ -470,20 +456,7 @@ func TestCreateEndpointSliceForAddresses(t *testing.T) {
 	assert.Equal(t, discoveryv1.AddressTypeIPv6, epSliceIPv6.AddressType)
 	assert.Len(t, epSliceIPv6.Endpoints, 1)
 	assert.ElementsMatch(t, ipv6Addresses, epSliceIPv6.Endpoints[0].Addresses)
-	assert.Len(t, epSliceIPv6.Ports, len(expectedPortsRequireMsgr2))
-	assertEndpointSlicePorts(t, epSliceIPv6.Ports, expectedPortsRequireMsgr2)
-}
-
-func assertEndpointSlicePorts(t *testing.T, actual []discoveryv1.EndpointPort, expected []struct {
-	Name string
-	Port int32
-},
-) {
-	assert.Len(t, actual, len(expected))
-	for i, exp := range expected {
-		assert.Equal(t, ptr.To(exp.Port), actual[i].Port)
-		assert.Equal(t, ptr.To(exp.Name), actual[i].Name)
-	}
+	assert.ElementsMatch(t, expectedPortsRequireMsgr2, epSliceIPv6.Ports)
 }
 
 func TestSaveMonEndpoints(t *testing.T) {
